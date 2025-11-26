@@ -2,115 +2,194 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
+# --- Local Smart Catalog (LLM-free) ---
 REGIONS = {
     "uae-region": {
         "label": "United Arab Emirates (DESC)",
+        "authority": "Dubai Electronic Security Center (DESC)",
         "portal": "https://www.desc.gov.ae/",
         "report": "https://www.desc.gov.ae/contact-us/",
-        "advice": [
-            "Document suspicious activity: screenshots, timestamps, email headers and URLs.",
-            "Do not click further links or attachments.",
-            "If this is a work device, inform your organisation's IT or security team immediately.",
-            "Report the incident via the DESC contact page and the relevant sector regulator if applicable.",
-            "Preserve logs and evidence; avoid deleting files until instructed by professionals."
-        ]
     },
     "germany-region": {
         "label": "Germany (BSI)",
+        "authority": "Bundesamt für Sicherheit in der Informationstechnik (BSI)",
         "portal": "https://www.bsi.bund.de/",
-        "report": "https://www.bsi.bund.de/EN/Home/home_node.html",
-        "advice": [
-            "Record incident details (affected systems, time, screenshots and error messages).",
-            "Isolate or disconnect affected systems to contain the incident when safe to do so.",
-            "If you operate critical infrastructure (KRITIS), follow mandatory reporting timelines.",
-            "Report IT incidents via BSI's guidance/incident reporting pages and notify internal SOC/CSIRT.",
-            "If criminal activity is suspected, contact local Polizei or the BKA."
-        ]
+        "report": "https://www.bsi.bund.de/EN/Service-Navi/Contact/contact_node.html",
     },
     "nj-region": {
         "label": "New Jersey (NJCCIC)",
+        "authority": "New Jersey Cybersecurity & Communications Integration Cell",
         "portal": "https://www.cyber.nj.gov/",
         "report": "https://www.cyber.nj.gov/report",
-        "advice": [
-            "Collect evidence (phishing email headers, message body, sender address, timestamps).",
-            "Stop interacting with the suspicious message or links.",
-            "Report the incident to your internal IT/security team if applicable.",
-            "Submit incident details to NJCCIC using their reporting resources.",
-            "For fraud or identity theft, file with local law enforcement and consider IC3.gov."
-        ]
     }
 }
 
-KEYWORDS = {
-    "phish": ["phish", "phishing", "phisher", "phishy"],
-    "malware": ["malware", "virus", "ransom", "ransomware", "trojan"],
-    "account": ["account", "password", "login", "credential", "hacked", "compromise"],
-    "report": ["report", "where do i", "how do i", "who do i", "contact", "reporting"]
+# --- Keyword-based LLM-style intent detection ---
+PATTERNS = {
+    "phishing": ["phish", "phishing", "scam mail", "fake email", "fraudulent email"],
+    "hacked": ["hacked", "compromised", "breach", "someone logged in", "unauthorized access"],
+    "malware": ["virus", "malware", "trojan", "ransomware", "worm"],
+    "fraud": ["scam", "fraud", "stolen money", "identity theft"],
+    "general": []
 }
 
-def detect_intent_type(text: str) -> str:
-    t = (text or "").lower()
-    if any(k in t for k in KEYWORDS["phish"]):
-        return "phishing"
-    if any(k in t for k in KEYWORDS["malware"]):
-        return "malware"
-    if any(k in t for k in KEYWORDS["account"]):
-        return "account"
-    if any(k in t for k in KEYWORDS["report"]):
-        return "reporting"
+def detect_incident_type(text):
+    text = text.lower()
+    for incident_type, words in PATTERNS.items():
+        if any(w in text for w in words):
+            return incident_type
     return "general"
 
-def build_response(region_key: str, intent_type: str, user_text: str) -> str:
-    reg = REGIONS[region_key]
-    lines = []
-    lines.append(f"According to official guidance for {reg['label']}:")
-    lines.append("")
-    if intent_type == "phishing":
-        lines.append("Immediate steps:")
-        lines.extend([f"- {reg['advice'][0]}", f"- {reg['advice'][1]}", f"- {reg['advice'][2]}"])
-    elif intent_type == "malware":
-        lines.append("Immediate steps:")
-        lines.extend([f"- {reg['advice'][1]}", f"- {reg['advice'][3]}"])
-    elif intent_type == "account":
-        lines.append("Immediate steps:")
-        lines.extend([f"- {reg['advice'][0]}", "- Change passwords and enable MFA where possible.", "- Notify your provider or internal security team."])
-    elif intent_type == "reporting":
-        lines.append("How to report:")
-        lines.append(f"- Use the official reporting page: {reg['report']}")
-        lines.append(f"- Include timestamps, affected systems, and any logs or screenshots.")
-    else:
-        lines.append("Recommended steps:")
-        for a in reg["advice"]:
-            lines.append(f"- {a}")
-    lines.append("")
-    lines.append(f"Official portal: {reg['portal']}")
-    lines.append(f"Reporting / contact page: {reg['report']}")
-    lines.append("")
-    lines.append("I provide informational guidance based on official portal recommendations and not legal advice.")
-    return "\n".join(lines)
 
+# --- AI-like Response Generator (No Gemini Required) ---
+def generate_incident_response(region_key, incident_type, user_message):
+    r = REGIONS[region_key]
+
+    base_intro = (
+        f"Here is guidance based on official cybersecurity practices for "
+        f"{r['label']} through {r['authority']}."
+    )
+
+    # --- INCIDENT RESPONSE LOGIC ---
+    if incident_type == "hacked":
+        response = f"""
+{base_intro}
+
+🔐 **Account or Device Compromise Detected**
+Since you mentioned **you have been hacked**, here is an immediate action plan:
+
+**1. Contain the Incident**
+- Disconnect the affected device from Wi-Fi or mobile data.
+- Log out of all sessions on other devices if possible.
+- Change your passwords from a clean device using strong, unique credentials.
+
+**2. Collect Evidence**
+- Record timestamps, suspicious activity, and screenshots.
+- Note any unfamiliar IP logins, SMS codes, unauthorized transactions, etc.
+
+**3. Official Reporting for {r['label']}**
+- Report the incident here: {r['report']}
+- Clearly describe the compromise, what systems were affected, and any data exposed.
+
+**4. Escalation**
+- If financial fraud or criminal misuse is suspected, contact local law enforcement immediately.
+
+**5. Additional Notes**
+- Avoid wiping devices before authorities or IT teams review them.
+- Enable MFA on all accounts as a preventive measure.
+
+Let me know if you want help identifying whether the hack is system-level, account-level, or network-level.
+"""
+        return response.strip()
+
+    elif incident_type == "phishing":
+        response = f"""
+{base_intro}
+
+📧 **Phishing Attempt Identified**
+Since you received a **phishing email**, here is what you should do next:
+
+**1. Do NOT interact with the email**
+- Do not click links, download attachments, or reply.
+- Take a screenshot or save the email for evidence.
+
+**2. Validate the message**
+- Check the sender domain, grammar, and URL structure.
+- Verify whether the organisation truly sent it.
+
+**3. Report the phishing attempt**
+- Submit it through the official reporting page: {r['report']}
+- Forward the email (if required) according to the authority's instructions.
+
+**4. If you already clicked the link**
+- Change your passwords immediately.
+- Enable Multi-Factor Authentication (MFA).
+- Monitor your accounts for unusual activity.
+
+**5. Extra Safety Tips for {r['label']}**
+- Hover over URLs before clicking.
+- Avoid logging into accounts via email links.
+
+I can also help you evaluate whether the email is part of a known phishing campaign.
+"""
+        return response.strip()
+
+    elif incident_type == "malware":
+        response = f"""
+{base_intro}
+
+🦠 **Possible Malware Infection**
+Since your message suggests malware, here is the recommended procedure:
+
+**1. Isolate the device**
+- Disconnect it from networks to prevent spread.
+
+**2. Run scans**
+- Use trusted antivirus or EDR tools.
+
+**3. Document symptoms**
+- Pop-ups, slow performance, unknown apps, encryption behavior.
+
+**4. Reporting**
+- Use the region's designated cyber-incident reporting channel: {r['report']}
+
+**5. If ransomware is suspected**
+- Do NOT pay ransom.
+- Preserve encrypted files for forensic investigation.
+
+I can guide you to determine if the malware is Trojan, ransomware, or spyware.
+"""
+        return response.strip()
+
+    else:
+        response = f"""
+{base_intro}
+
+🛡️ **General Cybersecurity Support**
+
+Here are best-practice steps based on your message:
+
+- Document suspicious behavior (screenshots, timestamps, URLs)
+- Avoid interacting with unknown links or files
+- Update passwords if you sense any compromise
+- Enable MFA wherever possible
+
+For official guidance or incident reporting:
+👉 {r['report']}
+
+Tell me more and I can narrow down the type of threat you're dealing with.
+"""
+        return response.strip()
+
+
+# --- Webhook Route ---
 @app.route("/webhook", methods=["POST"])
 def webhook():
     req = request.get_json(silent=True, force=True)
-    if not req or "queryResult" not in req:
-        return jsonify({"fulfillmentText": "Invalid request"}), 400
 
     user_text = req["queryResult"].get("queryText", "")
     contexts = req["queryResult"].get("outputContexts", [])
+
     region_key = None
     for c in contexts:
-        name = c.get("name", "")
-        key = name.split("/")[-1]
-        if key in REGIONS:
-            region_key = key
+        name = c["name"].split("/")[-1]
+        if name in REGIONS:
+            region_key = name
             break
 
     if not region_key:
         return jsonify({"fulfillmentText": "Please select a region first (UAE, Germany, or New Jersey)."}), 200
 
-    intent_type = detect_intent_type(user_text)
-    reply = build_response(region_key, intent_type, user_text)
+    incident_type = detect_incident_type(user_text)
+    reply = generate_incident_response(region_key, incident_type, user_text)
+
     return jsonify({"fulfillmentText": reply}), 200
 
+
+@app.route("/")
+def home():
+    return "CyberLawAdvisor Webhook Running", 200
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(port=5000, host="0.0.0.0")
